@@ -1,12 +1,12 @@
 {
   "id": "ximalaya",
   "name": "喜马拉雅",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "minAppVersion": "0.1.20",
   "main": "index.js",
   "playback": "stream",
   "permissions": {
-    "network": ["www.ximalaya.com", "*.xmcdn.com"]
+    "network": ["www.ximalaya.com", "passport.ximalaya.com", "*.xmcdn.com"]
   },
   "navigation": [
     { "title": "首页", "builtin": "home" },

@@ -27,6 +27,10 @@ test("a completed web sign-in is verified before the session is saved", async ()
   };
   const result = await env.plugin.signIn();
   assert.equal(result.id, "42");
+  // Regression: www served the login HTML, but its relative QR API was 404.
+  assert.equal(new URL(prompt.url).origin, "https://passport.ximalaya.com");
+  assert.equal(new URL(prompt.url).pathname, "/page/web/login");
+  assert.equal(new URL(prompt.url).searchParams.get("fromUri"), "https://www.ximalaya.com/");
   assert.deepEqual(prompt.until, ["1&_token"]);
   assert.equal(prompt.cookiesOf, "https://www.ximalaya.com/");
   assert.match(env.storage.get("session").cookie, /synthetic-login/);

@@ -37,8 +37,12 @@ export async function signIn() {
   const started = beginSignIn();
   if (typeof host.webSignIn !== "function") throw fail("setup", "请更新 MyGo Music 后使用网页登录");
   host.signInPrompt({ text: "请在喜马拉雅登录窗口中扫码，并在手机上确认登录" });
+  // The page requests /web/qrCode/gen relative to its own origin. Although
+  // www serves its HTML, that API exists only on passport (www returns 404).
+  const loginURL = new URL("https://passport.ximalaya.com/page/web/login");
+  loginURL.searchParams.set("fromUri", SITE + "/");
   const result = await host.webSignIn({
-    url: SITE + "/page/web/login", cookiesOf: SITE + "/", until: [AUTH_COOKIE], userAgent: USER_AGENT,
+    url: loginURL.toString(), cookiesOf: SITE + "/", until: [AUTH_COOKIE], userAgent: USER_AGENT,
   });
   assertCurrent(started);
   const pending = { cookies: parseCookies(result?.cookie), profile: null, checkedAt: 0 };

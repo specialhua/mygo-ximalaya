@@ -2,7 +2,7 @@
 
 面向 [MyGo Music](https://github.com/egoist/mygo-music) 的独立喜马拉雅插件，无需额外服务。
 
-需要 **MyGo Music 0.1.20 或更新版本**。当前为 `0.1.0` 开发版。
+需要 **MyGo Music 0.1.20 或更新版本**。当前为 `0.1.1` 开发版。
 
 ## 功能
 
@@ -24,10 +24,13 @@
 当前仓库是私有的，请使用本地文件夹或 ZIP 安装。MyGo 从 GitHub 安装时不会使用你的 `gh` 登录状态。
 
 1. 打开 MyGo Music → 设置 → 插件 → `+`。
-2. 从本地文件夹选择本仓库根目录，或从 ZIP 选择 `dist/mygo-ximalaya-0.1.0.zip`。
+2. 从本地文件夹选择本仓库根目录，或从 ZIP 选择 `dist/mygo-ximalaya-0.1.1.zip`。
 3. 在来源选择器切换到「喜马拉雅」，点击登录，在弹出的官方网页中扫码。
 
 仓库已包含构建后的 `index.js`，使用插件不需要安装 Node、Python 或依赖。
+
+`0.1.1` 修复登录窗口二维码空白：改用 `passport.ximalaya.com` 登录入口。
+`www.ximalaya.com/page/web/login` 虽然能显示页面，其相对路径二维码接口却返回 404。
 
 ## 开发
 
