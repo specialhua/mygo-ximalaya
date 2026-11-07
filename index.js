@@ -900,7 +900,8 @@ function selectStream(body, quality) {
   const candidates = lossless ? formats.filter((audio2) => mediaType(audio2.type) === "flac") : formats;
   if (!candidates.length) throw fail("unavailable", "该单集未提供可用的无损音质");
   const target = quality === "standard" ? 0 : 1;
-  const rank = (a) => Math.abs(Number(a.qualityLevel ?? 1) - target) * 10 + (mediaType(a.type) === "m4a" ? 0 : 1);
+  const codecRank = { mp3: 0, m4a: 1, aac: 2, flac: 3 };
+  const rank = (a) => Math.abs(Number(a.qualityLevel ?? 1) - target) * 10 + codecRank[mediaType(a.type)];
   const audio = [...candidates].sort((a, b) => rank(a) - rank(b))[0];
   const type = mediaType(audio.type);
   const url = decodePlayURL(audio.url);

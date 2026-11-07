@@ -203,6 +203,35 @@ test("preview audio and unsupported lossless requests are rejected", () => {
   assert.throws(() => selectStream(audioResponse(), "lossless"), /无损/);
 });
 
+// Regression: the M4A_64 variant of 魔鬼积木 is HE-AACv2 (SBR/PS), rejected
+// by MyGo's AAC-LC decoder, while the same-tier MP3_64 variant is compatible.
+test("same-tier MP3 wins over M4A without changing the selected quality", () => {
+  const body = audioResponse("123", { playUrlList: [
+    { type: "M4A_64", qualityLevel: 1, fileSize: 1000, url: encryptedURL("https://audio.xmcdn.com/high.m4a") },
+    { type: "MP3_64", qualityLevel: 1, fileSize: 1200, url: encryptedURL("https://audio.xmcdn.com/high.mp3") },
+    { type: "M4A_24", qualityLevel: 0, fileSize: 500, url: encryptedURL("https://audio.xmcdn.com/standard.m4a") },
+    { type: "MP3_32", qualityLevel: 0, fileSize: 600, url: encryptedURL("https://audio.xmcdn.com/standard.mp3") },
+  ] });
+  const high = selectStream(body, "high");
+  assert.equal(high.type, "mp3");
+  assert.equal(high.quality, "high");
+  assert.equal(high.size, 1200);
+  assert.equal(high.url, "https://audio.xmcdn.com/high.mp3");
+  const standard = selectStream(body, "standard");
+  assert.equal(standard.type, "mp3");
+  assert.equal(standard.quality, "standard");
+  assert.equal(standard.url, "https://audio.xmcdn.com/standard.mp3");
+});
+
+test("codec preference does not replace a requested tier with a different-tier MP3", () => {
+  const body = audioResponse("123", { playUrlList: [
+    { type: "M4A_64", qualityLevel: 1, url: encryptedURL("https://audio.xmcdn.com/high.m4a") },
+    { type: "MP3_32", qualityLevel: 0, url: encryptedURL("https://audio.xmcdn.com/standard.mp3") },
+  ] });
+  assert.equal(selectStream(body, "high").type, "m4a");
+  assert.throws(() => selectStream(body, "lossless"), { code: "unavailable" });
+});
+
 test("encrypted playback URLs cannot point to private or third-party hosts", () => {
   for (const url of ["https://127.0.0.1/a.m4a", "https://audio.xmcdn.com.evil.example/a.m4a", "https://user:password@audio.xmcdn.com/a.m4a", "https://audio.xmcdn.com:8443/a.m4a", "file:///tmp/test"]) {
     assert.throws(() => decodePlayURL(encryptedURL(url)), { code: "unavailable" });
