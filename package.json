@@ -1,0 +1,22 @@
+{
+  "name": "mygo-ximalaya",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "license": "AGPL-3.0-only",
+  "scripts": {
+    "build": "node scripts/build.mjs",
+    "check": "node --check index.js",
+    "pretest": "npm run build",
+    "test": "node --test tests/*.test.mjs",
+    "smoke": "node scripts/smoke.mjs",
+    "pack": "npm run build && python3 scripts/pack.py"
+  },
+  "dependencies": {
+    "@noble/ciphers": "2.4.0"
+  },
+  "devDependencies": {
+    "esbuild": "0.28.2",
+    "quickjs-emscripten": "0.32.0"
+  }
+}
