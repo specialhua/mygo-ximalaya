@@ -6,8 +6,8 @@ export function toShow(record, extra = {}) {
     id, name: text(record.albumTitle || record.title || record.name) || "未命名专辑",
     imageUrl: imageURL(record.cover || record.coverPath || record.coverLarge || record.albumCoverPath),
     description: text(record.richIntro || record.intro || record.description || record.shortIntro),
-    publisher: text(record.anchorName || record.nickname || record.anchor?.anchorNickName),
-    episodeCount: Math.floor(positive(record.trackTotalCount ?? record.trackCount ?? record.tracksCount)),
+    publisher: text(record.anchorName || record.nickname || record.albumUserNickName || record.anchor?.anchorNickName),
+    episodeCount: Math.floor(positive(record.trackTotalCount ?? record.trackCount ?? record.tracksCount ?? record.albumTrackCount)),
     subscribed: Boolean(record.isSubscribe), ...extra,
   };
 }

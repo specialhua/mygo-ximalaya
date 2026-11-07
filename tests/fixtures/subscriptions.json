@@ -1,0 +1,23 @@
+{
+  "ret": 200,
+  "msg": "success",
+  "data": {
+    "page": 1,
+    "pageSize": 30,
+    "totalCount": 1,
+    "privateSub": false,
+    "uid": 42,
+    "maxCount": 1000,
+    "albumsInfo": [
+      {
+        "id": 55,
+        "title": "测试订阅专辑",
+        "coverPath": "group/test.jpg",
+        "description": "匿名化测试数据",
+        "isPaid": true,
+        "trackCount": 65,
+        "anchor": { "anchorUid": 99, "anchorNickName": "测试主播", "anchorCoverPath": "group/anchor.jpg" }
+      }
+    ]
+  }
+}

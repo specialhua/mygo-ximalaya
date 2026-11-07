@@ -7,7 +7,10 @@ globalThis.host = {
 };
 const plugin = await import(`../index.js?smoke=${randomUUID()}`);
 assert.equal(await plugin.account(), null);
-assert.equal(plugin.home().title, "喜马拉雅");
+const home = await plugin.home();
+assert.equal(home.title, "喜马拉雅");
+assert.ok(home.sections[0].shows.length > 0);
+console.log(`home: ${home.sections[0].shows.length} recommended albums`);
 for (const kind of ["shows", "tracks"]) {
   const found = await plugin.search({ query: "唐诗", kind, offset: 0 });
   assert.ok(found[kind].length > 0);

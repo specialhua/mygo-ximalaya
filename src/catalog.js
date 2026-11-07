@@ -91,18 +91,50 @@ export async function show({ id, offset = 0 }) {
   return { show: album, episodes, more };
 }
 
-export async function subscriptions(page = 1) {
+export async function subscriptionPage(page = 1) {
   if (!Number.isSafeInteger(page) || page < 1 || page > 10000) throw new Error("无效的订阅分页");
   await requireAccount();
   const { data } = await request("/revision/my/getSubscriptionSynthesize", { pageNum: page, pageSize: PAGE_SIZE });
-  if (!data || !Array.isArray(data.albumsInfo) || Number(data.pageNum) !== page) throw new Error("喜马拉雅未返回有效订阅列表");
+  // The live subscription API returns `page`, unlike purchases (`pageNum`).
+  if (!data || !Array.isArray(data.albumsInfo) || Number(data.page ?? data.pageNum) !== page) throw new Error("喜马拉雅未返回有效订阅列表");
   const shows = data.albumsInfo.map((item) => toShow(item, { subscribed: true }));
   const more = hasMore(data, shows.length, (page - 1) * PAGE_SIZE + shows.length, data.totalCount);
   if (more && !shows.length) throw new Error("喜马拉雅订阅分页暂不可用，请重新打开");
+  return { shows, more };
+}
+
+export async function subscriptions(page = 1) {
+  const { shows, more } = await subscriptionPage(page);
   return {
     title: "我的订阅", subtitle: "喜马拉雅账号订阅",
     sections: [{ title: "订阅专辑", shows, empty: "还没有订阅专辑", ...(more ? { morePage: `subscriptions:${page + 1}` } : {}) }],
   };
+}
+
+export async function purchasePage(page = 1) {
+  if (!Number.isSafeInteger(page) || page < 1 || page > 10000) throw new Error("无效的已购分页");
+  await requireAccount();
+  const { data } = await request("/revision/my/getHasBroughtAlbums", { pageNum: page, pageSize: PAGE_SIZE });
+  if (!data || !Array.isArray(data.albumList) || Number(data.pageNum ?? data.page) !== page) throw new Error("喜马拉雅未返回有效已购列表");
+  const shows = data.albumList.map((item) => toShow(item));
+  // The live API misspells pageSize as pageSie; use our requested limit instead.
+  const more = hasMore(data, shows.length, (page - 1) * PAGE_SIZE + shows.length, data.totalCount);
+  if (more && !shows.length) throw new Error("喜马拉雅已购分页暂不可用，请重新打开");
+  return { shows, more };
+}
+
+export async function purchases(page = 1) {
+  const { shows, more } = await purchasePage(page);
+  return {
+    title: "已购专辑", subtitle: "单独购买的专辑；VIP 可听内容请通过搜索或订阅打开",
+    sections: [{ title: "已购专辑", shows, empty: "当前账号没有单独购买的专辑；VIP 权益内容可通过搜索或订阅打开", ...(more ? { morePage: `purchases:${page + 1}` } : {}) }],
+  };
+}
+
+export async function recommendations() {
+  const { data } = await request("/revision/explore/guessYouLike", { page: 1, pageSize: 30 });
+  if (!data || !Array.isArray(data.recommendInfoList)) throw new Error("喜马拉雅未返回有效推荐列表");
+  return data.recommendInfoList.filter((item) => !item.isDeleted).slice(0, 60).map((item) => toShow(item));
 }
 
 export function recent() {

@@ -3,13 +3,17 @@ import test from "node:test";
 import { albumPage, audioResponse, encryptedURL, json, loadPlugin, profile, savedSession, trackPage } from "./helpers.mjs";
 import { decodePlayURL, selectStream } from "../src/playback.js";
 import { imageURL, parseLink, text } from "../src/utils.js";
+import { readFile } from "node:fs/promises";
+const liveSubscriptionShape = JSON.parse(await readFile(new URL("./fixtures/subscriptions.json", import.meta.url), "utf8"));
 
-test("the bundle loads without host calls and home works offline", async () => {
+test("the bundle loads without host calls and home preserves an offline empty state", async () => {
   const { plugin, requests } = await loadPlugin();
   assert.equal(await plugin.account(), null);
-  assert.equal(plugin.home().title, "喜马拉雅");
   assert.deepEqual(plugin.recent(), []);
   assert.equal(requests.length, 0);
+  const home = await plugin.home();
+  assert.equal(home.title, "喜马拉雅");
+  assert.match(home.sections[0].empty, /无法连接/);
   assert.equal(plugin.remotePlay, undefined);
   assert.equal(plugin.subscribeShow, undefined);
 });
@@ -215,6 +219,73 @@ test("subscribed albums are paged rather than loading an unbounded list", async 
   assert.equal(result.sections[0].shows[0].publisher, "主播");
   assert.equal(result.sections[0].morePage, "subscriptions:3");
   assert.equal(requests.length, 2);
+});
+
+// Regression: live subscriptions return `page`, and were rejected as invalid
+// because v0.1.1 required the different endpoint's `pageNum` field.
+test("a subscription response using the live page field displays its single album", async () => {
+  const { plugin } = await loadPlugin(({ url }) => url.pathname.endsWith("getCurrentUser") ? profile() : json(liveSubscriptionShape), savedSession());
+  const result = await plugin.browse({ page: "subscriptions" });
+  assert.equal(result.sections[0].shows.length, 1);
+  assert.equal(result.sections[0].shows[0].id, "55");
+  assert.equal(result.sections[0].shows[0].publisher, "测试主播");
+  assert.equal(result.sections[0].shows[0].subscribed, true);
+  assert.equal(result.sections[0].morePage, undefined);
+});
+
+test("zero subscriptions are a successful empty page rather than a parsing error", async () => {
+  const { plugin } = await loadPlugin(({ url }) => url.pathname.endsWith("getCurrentUser") ? profile() : json({ ret: 200, data: { page: 1, pageSize: 30, totalCount: 0, albumsInfo: [] } }), savedSession());
+  const result = await plugin.browse({ page: "subscriptions" });
+  assert.deepEqual(result.sections[0].shows, []);
+  assert.equal(result.sections[0].morePage, undefined);
+});
+
+test("a repeated subscription page is rejected rather than duplicating its entries", async () => {
+  let fetched = false;
+  const { plugin } = await loadPlugin(({ url }) => {
+    if (url.pathname.endsWith("getCurrentUser")) return profile();
+    assert.equal(url.searchParams.get("pageNum"), "2");
+    fetched = true;
+    return json(liveSubscriptionShape);
+  }, savedSession());
+  await assert.rejects(plugin.browse({ page: "subscriptions:2" }));
+  assert.equal(fetched, true);
+});
+
+test("purchases use albumList and accept the service's misspelled pageSie field", async () => {
+  const { plugin } = await loadPlugin(({ url }) => {
+    if (url.pathname.endsWith("getCurrentUser")) return profile();
+    assert.equal(url.pathname, "/revision/my/getHasBroughtAlbums");
+    return json({ ret: 200, data: { pageNum: 1, pageSie: 30, totalCount: 1, albumList: [{ albumId: 66, albumTitle: "测试已购", trackCount: 20 }] } });
+  }, savedSession());
+  const result = await plugin.browse({ page: "purchases" });
+  assert.equal(result.sections[0].shows[0].id, "66");
+  assert.equal(result.sections[0].shows[0].episodeCount, 20);
+  assert.equal(result.sections[0].morePage, undefined);
+});
+
+test("home displays online recommendations and account content without blank navigation tiles", async () => {
+  const { plugin } = await loadPlugin(({ url }) => {
+    if (url.pathname.endsWith("getCurrentUser")) return profile();
+    if (url.pathname.endsWith("getSubscriptionSynthesize")) return json(liveSubscriptionShape);
+    if (url.pathname.endsWith("getHasBroughtAlbums")) return json({ ret: 200, data: { pageNum: 1, pageSie: 30, totalCount: 0, albumList: [] } });
+    if (url.pathname.endsWith("guessYouLike")) return json({ ret: 200, data: { recommendInfoList: [{ albumId: 77, albumTitle: "测试推荐", albumCoverPath: "group/recommend.jpg", albumUserNickName: "推荐主播", albumTrackCount: 100 }] } });
+    throw new Error("Unexpected endpoint");
+  }, savedSession());
+  const result = await plugin.home();
+  assert.equal(result.sections[0].shows[0].publisher, "推荐主播");
+  assert.equal(result.sections[0].shows[0].episodeCount, 100);
+  assert.equal(result.sections[1].shows.length, 1);
+  assert.equal(result.sections[2].shows.length, 0);
+  assert.match(result.sections[2].empty, /VIP/);
+  assert.ok(result.sections.every((section) => !section.links));
+});
+
+test("a broken recommendation service leaves local history visible on home", async () => {
+  const { plugin } = await loadPlugin(() => { throw new Error("network failure"); }, { recent: [{ id: "1000", name: "测试单集", album: { id: "55", name: "测试专辑" } }] });
+  const result = await plugin.home();
+  assert.equal(result.sections[1].tracks[0].id, "1000");
+  assert.match(result.sections[0].empty, /推荐暂不可用/);
 });
 
 test("local listening history deduplicates episodes and persists metadata only", async () => {

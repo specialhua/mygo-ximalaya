@@ -262,8 +262,8 @@ function toShow(record, extra = {}) {
     name: text(record.albumTitle || record.title || record.name) || "未命名专辑",
     imageUrl: imageURL(record.cover || record.coverPath || record.coverLarge || record.albumCoverPath),
     description: text(record.richIntro || record.intro || record.description || record.shortIntro),
-    publisher: text(record.anchorName || record.nickname || record.anchor?.anchorNickName),
-    episodeCount: Math.floor(positive(record.trackTotalCount ?? record.trackCount ?? record.tracksCount)),
+    publisher: text(record.anchorName || record.nickname || record.albumUserNickName || record.anchor?.anchorNickName),
+    episodeCount: Math.floor(positive(record.trackTotalCount ?? record.trackCount ?? record.tracksCount ?? record.albumTrackCount)),
     subscribed: Boolean(record.isSubscribe),
     ...extra
   };
@@ -374,19 +374,46 @@ async function show({ id, offset = 0 }) {
   }
   return { show: album, episodes, more };
 }
-async function subscriptions(page = 1) {
+async function subscriptionPage(page = 1) {
   if (!Number.isSafeInteger(page) || page < 1 || page > 1e4) throw new Error("无效的订阅分页");
   await requireAccount();
   const { data } = await request("/revision/my/getSubscriptionSynthesize", { pageNum: page, pageSize: PAGE_SIZE });
-  if (!data || !Array.isArray(data.albumsInfo) || Number(data.pageNum) !== page) throw new Error("喜马拉雅未返回有效订阅列表");
+  if (!data || !Array.isArray(data.albumsInfo) || Number(data.page ?? data.pageNum) !== page) throw new Error("喜马拉雅未返回有效订阅列表");
   const shows = data.albumsInfo.map((item) => toShow(item, { subscribed: true }));
   const more = hasMore(data, shows.length, (page - 1) * PAGE_SIZE + shows.length, data.totalCount);
   if (more && !shows.length) throw new Error("喜马拉雅订阅分页暂不可用，请重新打开");
+  return { shows, more };
+}
+async function subscriptions(page = 1) {
+  const { shows, more } = await subscriptionPage(page);
   return {
     title: "我的订阅",
     subtitle: "喜马拉雅账号订阅",
     sections: [{ title: "订阅专辑", shows, empty: "还没有订阅专辑", ...more ? { morePage: `subscriptions:${page + 1}` } : {} }]
   };
+}
+async function purchasePage(page = 1) {
+  if (!Number.isSafeInteger(page) || page < 1 || page > 1e4) throw new Error("无效的已购分页");
+  await requireAccount();
+  const { data } = await request("/revision/my/getHasBroughtAlbums", { pageNum: page, pageSize: PAGE_SIZE });
+  if (!data || !Array.isArray(data.albumList) || Number(data.pageNum ?? data.page) !== page) throw new Error("喜马拉雅未返回有效已购列表");
+  const shows = data.albumList.map((item) => toShow(item));
+  const more = hasMore(data, shows.length, (page - 1) * PAGE_SIZE + shows.length, data.totalCount);
+  if (more && !shows.length) throw new Error("喜马拉雅已购分页暂不可用，请重新打开");
+  return { shows, more };
+}
+async function purchases(page = 1) {
+  const { shows, more } = await purchasePage(page);
+  return {
+    title: "已购专辑",
+    subtitle: "单独购买的专辑；VIP 可听内容请通过搜索或订阅打开",
+    sections: [{ title: "已购专辑", shows, empty: "当前账号没有单独购买的专辑；VIP 权益内容可通过搜索或订阅打开", ...more ? { morePage: `purchases:${page + 1}` } : {} }]
+  };
+}
+async function recommendations() {
+  const { data } = await request("/revision/explore/guessYouLike", { page: 1, pageSize: 30 });
+  if (!data || !Array.isArray(data.recommendInfoList)) throw new Error("喜马拉雅未返回有效推荐列表");
+  return data.recommendInfoList.filter((item) => !item.isDeleted).slice(0, 60).map((item) => toShow(item));
 }
 function recent() {
   const records = host.storage.get("recent");
@@ -869,26 +896,46 @@ async function stream({ id, quality = "high" }) {
 function signOut() {
   clearSession();
 }
-function home() {
+async function home() {
   const viewed = host.storage.get("viewedShows");
+  const listening = recent();
+  const loggedIn = signedIn();
+  const [recommended, subscribed, purchased] = await Promise.allSettled([
+    recommendations(),
+    loggedIn ? subscriptionPage(1) : Promise.resolve(null),
+    loggedIn ? purchasePage(1) : Promise.resolve(null)
+  ]);
+  const sections = [{
+    title: "发现专辑",
+    shows: recommended.status === "fulfilled" ? recommended.value.slice(0, 12) : [],
+    empty: recommended.status === "rejected" ? `推荐暂不可用：${recommended.reason.message}` : "暂无推荐专辑",
+    morePage: "discover"
+  }];
+  for (const [result, title, page, empty] of [
+    [subscribed, "我的订阅", "subscriptions", "当前账号还没有订阅专辑"],
+    [purchased, "已购专辑", "purchases", "当前账号没有单独购买的专辑；VIP 内容可通过搜索或订阅打开"]
+  ]) {
+    if (!loggedIn) continue;
+    const value = result.status === "fulfilled" ? result.value : null;
+    sections.push({ title, shows: value?.shows.slice(0, 12) || [], empty: result.status === "rejected" ? `暂时无法加载：${result.reason.message}` : empty, morePage: page });
+  }
+  if (listening.length) sections.push({ title: "最近收听", tracks: listening.slice(0, 10), morePage: "recent" });
+  if (Array.isArray(viewed) && viewed.length) sections.push({ title: "浏览过的专辑", shows: viewed });
   return {
     title: "喜马拉雅",
     subtitle: "搜索声音与节目专辑，也可粘贴专辑或单集链接",
-    sections: [
-      { title: "我的喜马拉雅", links: [{ title: "我的订阅", subtitle: "登录后查看订阅专辑", page: "subscriptions" }, { title: "最近收听", subtitle: "此设备的收听记录", page: "recent" }] },
-      { title: "最近收听", tracks: recent().slice(0, 10), empty: "播放单集后会显示在这里", morePage: "recent" },
-      { title: "浏览过的专辑", shows: Array.isArray(viewed) ? viewed : [], empty: "搜索节目专辑，或粘贴喜马拉雅专辑链接" }
-    ]
+    sections
   };
 }
 async function browse({ page }) {
   if (page === "recent") return { title: "最近收听", subtitle: "仅保存在此设备，不同步云端进度", sections: [{ tracks: recent(), empty: "还没有收听记录" }] };
   if (page === "account") {
     const me = await requireAccount();
-    return { title: me.name, imageUrl: me.imageUrl, sections: [{ links: [{ title: "我的订阅", page: "subscriptions" }, { title: "最近收听", page: "recent" }] }] };
+    return { title: me.name, imageUrl: me.imageUrl, sections: [{ links: [{ title: "我的订阅", page: "subscriptions" }, { title: "已购专辑", page: "purchases" }, { title: "最近收听", page: "recent" }] }] };
   }
-  const match = /^subscriptions(?::([1-9]\d{0,3}))?$/.exec(String(page));
-  if (match) return subscriptions(match[1] ? Number(match[1]) : 1);
+  if (page === "discover") return { title: "发现专辑", sections: [{ title: "喜马拉雅推荐", shows: await recommendations(), empty: "暂无推荐专辑" }] };
+  const match = /^(subscriptions|purchases)(?::([1-9]\d{0,3}))?$/.exec(String(page));
+  if (match) return (match[1] === "subscriptions" ? subscriptions : purchases)(match[2] ? Number(match[2]) : 1);
   throw fail("unsupported", "没有这个喜马拉雅页面");
 }
 export {
