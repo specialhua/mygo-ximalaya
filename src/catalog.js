@@ -137,6 +137,52 @@ export async function recommendations() {
   return data.recommendInfoList.filter((item) => !item.isDeleted).slice(0, 60).map((item) => toShow(item));
 }
 
+function clockTime(value) {
+  const seconds = Math.floor(Math.max(0, Number(value) || 0));
+  const hours = Math.floor(seconds / 3600);
+  const minutes = Math.floor(seconds / 60) % 60;
+  const rest = String(seconds % 60).padStart(2, "0");
+  return hours ? `${hours}:${String(minutes).padStart(2, "0")}:${rest}` : `${minutes}:${rest}`;
+}
+
+export async function historyPage(page = 1) {
+  if (!Number.isSafeInteger(page) || page < 1 || page > 10000) throw new Error("无效的历史分页");
+  await requireAccount();
+  const { data } = await request("/revision/track/history/listen", { includeChannel: false, includeRadio: false, pageNum: page, pageSize: PAGE_SIZE });
+  const groups = [["today", "今天"], ["yesterday", "昨天"], ["earlier", "更早"]];
+  if (!data || Number(data.pageNum) !== page || groups.some(([key]) => !Array.isArray(data[key]))) throw new Error("喜马拉雅未返回有效云端历史");
+  const seen = new Set();
+  let received = 0;
+  const sections = groups.map(([key, title]) => {
+    const rows = data[key];
+    received += rows.length;
+    const items = [];
+    // History order is newest first, including multiple listens to one episode.
+    for (const row of [...rows].sort((a, b) => Number(b.startedAt || 0) - Number(a.startedAt || 0))) {
+      if (row.isDeleted || row.childIsVideo || Number(row.type) !== 1) continue;
+      const id = idOf(row.childId);
+      if (seen.has(id)) continue;
+      seen.add(id);
+      const track = toTrack({ trackId: id, trackName: row.childTitle, trackCoverPath: row.itemCoverUrl, albumId: row.itemId, albumName: row.itemTitle, anchorId: row.uid, anchorName: row.userName, duration: row.length, isPaid: row.isPaid });
+      // Listening time is not an episode's publication date. The host has no
+      // resume-position field for stream tracks, so present it as a description.
+      if (Number.isFinite(Number(row.breakSecond)) && row.breakSecond !== null && row.breakSecond !== undefined) track.description = `上次听到 ${clockTime(row.breakSecond)}`;
+      items.push(rememberTrack(track));
+    }
+    return { title, tracks: items };
+  }).filter((section) => section.tracks.length);
+  const more = hasMore(data, received, (page - 1) * PAGE_SIZE + received, data.totalCount);
+  if (more && !received) throw new Error("喜马拉雅历史分页暂不可用，请重新打开");
+  return { sections, tracks: sections.flatMap((section) => section.tracks), more };
+}
+
+export async function history(page = 1) {
+  const result = await historyPage(page);
+  const sections = result.sections.length ? result.sections : [{ title: "云端历史", tracks: [], empty: "喜马拉雅云端还没有可播放的历史记录" }];
+  if (result.more) sections[sections.length - 1].morePage = `recent:${page + 1}`;
+  return { title: "最近收听", subtitle: "喜马拉雅云端历史", sections };
+}
+
 export function recent() {
   const records = host.storage.get("recent");
   return Array.isArray(records) ? records.filter((record) => record?.id && record?.album) : [];

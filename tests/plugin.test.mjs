@@ -5,11 +5,12 @@ import { decodePlayURL, selectStream } from "../src/playback.js";
 import { imageURL, parseLink, text } from "../src/utils.js";
 import { readFile } from "node:fs/promises";
 const liveSubscriptionShape = JSON.parse(await readFile(new URL("./fixtures/subscriptions.json", import.meta.url), "utf8"));
+const liveHistoryShape = JSON.parse(await readFile(new URL("./fixtures/history.json", import.meta.url), "utf8"));
 
 test("the bundle loads without host calls and home preserves an offline empty state", async () => {
   const { plugin, requests } = await loadPlugin();
   assert.equal(await plugin.account(), null);
-  assert.deepEqual(plugin.recent(), []);
+  assert.deepEqual(await plugin.recent(), []);
   assert.equal(requests.length, 0);
   const home = await plugin.home();
   assert.equal(home.title, "喜马拉雅");
@@ -269,6 +270,7 @@ test("home displays online recommendations and account content without blank nav
     if (url.pathname.endsWith("getCurrentUser")) return profile();
     if (url.pathname.endsWith("getSubscriptionSynthesize")) return json(liveSubscriptionShape);
     if (url.pathname.endsWith("getHasBroughtAlbums")) return json({ ret: 200, data: { pageNum: 1, pageSie: 30, totalCount: 0, albumList: [] } });
+    if (url.pathname.endsWith("/history/listen")) return json(liveHistoryShape);
     if (url.pathname.endsWith("guessYouLike")) return json({ ret: 200, data: { recommendInfoList: [{ albumId: 77, albumTitle: "测试推荐", albumCoverPath: "group/recommend.jpg", albumUserNickName: "推荐主播", albumTrackCount: 100 }] } });
     throw new Error("Unexpected endpoint");
   }, savedSession());
@@ -278,6 +280,7 @@ test("home displays online recommendations and account content without blank nav
   assert.equal(result.sections[1].shows.length, 1);
   assert.equal(result.sections[2].shows.length, 0);
   assert.match(result.sections[2].empty, /VIP/);
+  assert.equal(result.sections[3].tracks.length, 2);
   assert.ok(result.sections.every((section) => !section.links));
 });
 
@@ -288,13 +291,81 @@ test("a broken recommendation service leaves local history visible on home", asy
   assert.match(result.sections[0].empty, /推荐暂不可用/);
 });
 
+test("cloud history maps episode identity, seconds and progress without inventing publication dates", async () => {
+  const { plugin } = await loadPlugin(({ url }) => {
+    if (url.pathname.endsWith("getCurrentUser")) return profile();
+    assert.equal(url.pathname, "/revision/track/history/listen");
+    assert.equal(url.searchParams.get("includeChannel"), "false");
+    assert.equal(url.searchParams.get("includeRadio"), "false");
+    return json(liveHistoryShape);
+  }, savedSession());
+  const result = await plugin.browse({ page: "recent" });
+  assert.equal(result.sections.length, 2);
+  const first = result.sections[0].tracks[0];
+  assert.equal(first.id, "1001");
+  assert.equal(first.showId, "55");
+  assert.equal(first.duration, 200000);
+  assert.equal(first.description, "上次听到 1:23");
+  assert.equal(first.published, undefined);
+  assert.equal(result.sections[1].tracks[0].description, "上次听到 1:01:01");
+});
+
+test("cloud and local history remain separate and only read-only requests are sent", async () => {
+  const { plugin, requests } = await loadPlugin(({ url }) => url.pathname.endsWith("getCurrentUser") ? profile() : json(liveHistoryShape), { ...savedSession(), recent: [{ id: "9999", name: "本机单集", album: { id: "77" } }] });
+  assert.deepEqual((await plugin.recent()).map((t) => t.id), ["1001", "1002"]);
+  assert.deepEqual((await plugin.browse({ page: "local-recent" })).sections[0].tracks.map((t) => t.id), ["9999"]);
+  assert.ok(requests.every(({ init }) => init.method === undefined || init.method === "GET"));
+});
+
+test("cloud history pages preserve the requested page and offer the next one", async () => {
+  const { plugin } = await loadPlugin(({ url }) => {
+    if (url.pathname.endsWith("getCurrentUser")) return profile();
+    assert.equal(url.searchParams.get("pageNum"), "2");
+    const response = structuredClone(liveHistoryShape);
+    response.data.pageNum = 2;
+    response.data.totalCount = 100;
+    return json(response);
+  }, savedSession());
+  const result = await plugin.browse({ page: "recent:2" });
+  assert.equal(result.sections.at(-1).morePage, "recent:3");
+});
+
+test("empty cloud history is valid and does not substitute local entries", async () => {
+  const { plugin } = await loadPlugin(({ url }) => url.pathname.endsWith("getCurrentUser") ? profile() : json({ ret: 200, data: { pageNum: 1, totalCount: 0, today: [], yesterday: [], earlier: [] } }), { ...savedSession(), recent: [{ id: "9999", album: { id: "77" } }] });
+  assert.deepEqual(await plugin.recent(), []);
+  const result = await plugin.browse({ page: "recent" });
+  assert.deepEqual(result.sections[0].tracks, []);
+  assert.equal(result.sections[0].morePage, undefined);
+});
+
+test("duplicate, deleted and non-audio history entries do not become playable duplicates", async () => {
+  const response = structuredClone(liveHistoryShape);
+  response.data.today.push({ ...response.data.today[0], isDeleted: true }, { ...response.data.today[0], childIsVideo: true }, { ...response.data.today[0], childId: 9999, type: 2 });
+  response.data.earlier.push({ ...response.data.today[0], startedAt: 1 });
+  const { plugin } = await loadPlugin(({ url }) => url.pathname.endsWith("getCurrentUser") ? profile() : json(response), savedSession());
+  assert.deepEqual((await plugin.recent()).map((t) => t.id), ["1001", "1002"]);
+});
+
+test("a broken cloud history shape is reported instead of appearing to be an empty account", async () => {
+  const { plugin } = await loadPlugin(({ url }) => url.pathname.endsWith("getCurrentUser") ? profile() : json({ ret: 200, data: { pageNum: 1, totalCount: 0 } }), savedSession());
+  await assert.rejects(plugin.browse({ page: "recent" }));
+});
+
+test("cloud history requires login even when local history is present", async () => {
+  const { plugin, requests } = await loadPlugin(undefined, { recent: [{ id: "9999", album: { id: "77" } }] });
+  assert.deepEqual(await plugin.recent(), []);
+  await assert.rejects(plugin.browse({ page: "recent" }), { code: "signIn" });
+  assert.equal(requests.length, 0);
+});
+
 test("local listening history deduplicates episodes and persists metadata only", async () => {
   const { plugin, storage } = await loadPlugin(({ url }) => json(url.pathname === "/revision/album" ? albumPage() : trackPage("55", 1)));
   await plugin.show({ id: "55" });
   await plugin.played({ id: "1000" });
   await plugin.played({ id: "1001" });
   await plugin.played({ id: "1000" });
-  assert.deepEqual(plugin.recent().map((t) => t.id), ["1000", "1001"]);
+  const local = await plugin.browse({ page: "local-recent" });
+  assert.deepEqual(local.sections[0].tracks.map((t) => t.id), ["1000", "1001"]);
   assert.doesNotMatch(JSON.stringify(storage.get("recent")), /synthetic|playUrlList/);
 });
 

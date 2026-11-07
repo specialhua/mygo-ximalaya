@@ -31,9 +31,9 @@ test("the distributed module and AES decoder run in QuickJS without Node globals
     vm.setProp(vm.global, "plugin", exports);
     exports.dispose();
     vm.unwrapResult(vm.evalCode(`globalThis.host = { storage: { get() { return null; } } };`)).dispose();
-    const history = vm.unwrapResult(vm.evalCode("plugin.recent()"));
-    assert.deepEqual(vm.dump(history), []);
-    history.dispose();
+    const exported = vm.unwrapResult(vm.evalCode("typeof plugin.recent"));
+    assert.equal(vm.getString(exported), "function");
+    exported.dispose();
     const url = "https://audio.xmcdn.com/quickjs.m4a?test=synthetic";
     const decoded = vm.unwrapResult(vm.evalCode(`plugin.__testDecode(${JSON.stringify(encryptedURL(url))})`));
     assert.equal(vm.getString(decoded), url);

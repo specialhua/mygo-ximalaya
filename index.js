@@ -415,6 +415,46 @@ async function recommendations() {
   if (!data || !Array.isArray(data.recommendInfoList)) throw new Error("喜马拉雅未返回有效推荐列表");
   return data.recommendInfoList.filter((item) => !item.isDeleted).slice(0, 60).map((item) => toShow(item));
 }
+function clockTime(value) {
+  const seconds = Math.floor(Math.max(0, Number(value) || 0));
+  const hours = Math.floor(seconds / 3600);
+  const minutes = Math.floor(seconds / 60) % 60;
+  const rest = String(seconds % 60).padStart(2, "0");
+  return hours ? `${hours}:${String(minutes).padStart(2, "0")}:${rest}` : `${minutes}:${rest}`;
+}
+async function historyPage(page = 1) {
+  if (!Number.isSafeInteger(page) || page < 1 || page > 1e4) throw new Error("无效的历史分页");
+  await requireAccount();
+  const { data } = await request("/revision/track/history/listen", { includeChannel: false, includeRadio: false, pageNum: page, pageSize: PAGE_SIZE });
+  const groups = [["today", "今天"], ["yesterday", "昨天"], ["earlier", "更早"]];
+  if (!data || Number(data.pageNum) !== page || groups.some(([key]) => !Array.isArray(data[key]))) throw new Error("喜马拉雅未返回有效云端历史");
+  const seen = /* @__PURE__ */ new Set();
+  let received = 0;
+  const sections = groups.map(([key, title]) => {
+    const rows = data[key];
+    received += rows.length;
+    const items = [];
+    for (const row of [...rows].sort((a, b) => Number(b.startedAt || 0) - Number(a.startedAt || 0))) {
+      if (row.isDeleted || row.childIsVideo || Number(row.type) !== 1) continue;
+      const id = idOf(row.childId);
+      if (seen.has(id)) continue;
+      seen.add(id);
+      const track = toTrack({ trackId: id, trackName: row.childTitle, trackCoverPath: row.itemCoverUrl, albumId: row.itemId, albumName: row.itemTitle, anchorId: row.uid, anchorName: row.userName, duration: row.length, isPaid: row.isPaid });
+      if (Number.isFinite(Number(row.breakSecond)) && row.breakSecond !== null && row.breakSecond !== void 0) track.description = `上次听到 ${clockTime(row.breakSecond)}`;
+      items.push(rememberTrack(track));
+    }
+    return { title, tracks: items };
+  }).filter((section) => section.tracks.length);
+  const more = hasMore(data, received, (page - 1) * PAGE_SIZE + received, data.totalCount);
+  if (more && !received) throw new Error("喜马拉雅历史分页暂不可用，请重新打开");
+  return { sections, tracks: sections.flatMap((section) => section.tracks), more };
+}
+async function history(page = 1) {
+  const result = await historyPage(page);
+  const sections = result.sections.length ? result.sections : [{ title: "云端历史", tracks: [], empty: "喜马拉雅云端还没有可播放的历史记录" }];
+  if (result.more) sections[sections.length - 1].morePage = `recent:${page + 1}`;
+  return { title: "最近收听", subtitle: "喜马拉雅云端历史", sections };
+}
 function recent() {
   const records = host.storage.get("recent");
   return Array.isArray(records) ? records.filter((record) => record?.id && record?.album) : [];
@@ -896,14 +936,19 @@ async function stream({ id, quality = "high" }) {
 function signOut() {
   clearSession();
 }
+async function recent2() {
+  if (!signedIn()) return [];
+  return (await historyPage(1)).tracks;
+}
 async function home() {
   const viewed = host.storage.get("viewedShows");
   const listening = recent();
   const loggedIn = signedIn();
-  const [recommended, subscribed, purchased] = await Promise.allSettled([
+  const [recommended, subscribed, purchased, listened] = await Promise.allSettled([
     recommendations(),
     loggedIn ? subscriptionPage(1) : Promise.resolve(null),
-    loggedIn ? purchasePage(1) : Promise.resolve(null)
+    loggedIn ? purchasePage(1) : Promise.resolve(null),
+    loggedIn ? historyPage(1) : Promise.resolve(null)
   ]);
   const sections = [{
     title: "发现专辑",
@@ -919,7 +964,8 @@ async function home() {
     const value = result.status === "fulfilled" ? result.value : null;
     sections.push({ title, shows: value?.shows.slice(0, 12) || [], empty: result.status === "rejected" ? `暂时无法加载：${result.reason.message}` : empty, morePage: page });
   }
-  if (listening.length) sections.push({ title: "最近收听", tracks: listening.slice(0, 10), morePage: "recent" });
+  if (loggedIn) sections.push({ title: "最近收听", tracks: listened.status === "fulfilled" ? listened.value.tracks.slice(0, 10) : [], empty: listened.status === "rejected" ? `云端历史暂不可用：${listened.reason.message}` : "云端还没有收听记录", morePage: "recent" });
+  if (listening.length) sections.push({ title: "本机记录", tracks: listening.slice(0, 10), morePage: "local-recent" });
   if (Array.isArray(viewed) && viewed.length) sections.push({ title: "浏览过的专辑", shows: viewed });
   return {
     title: "喜马拉雅",
@@ -928,14 +974,14 @@ async function home() {
   };
 }
 async function browse({ page }) {
-  if (page === "recent") return { title: "最近收听", subtitle: "仅保存在此设备，不同步云端进度", sections: [{ tracks: recent(), empty: "还没有收听记录" }] };
+  if (page === "local-recent") return { title: "本机记录", subtitle: "此设备的收听记录", sections: [{ tracks: recent(), empty: "还没有收听记录" }] };
   if (page === "account") {
     const me = await requireAccount();
-    return { title: me.name, imageUrl: me.imageUrl, sections: [{ links: [{ title: "我的订阅", page: "subscriptions" }, { title: "已购专辑", page: "purchases" }, { title: "最近收听", page: "recent" }] }] };
+    return { title: me.name, imageUrl: me.imageUrl, sections: [{ links: [{ title: "我的订阅", page: "subscriptions" }, { title: "已购专辑", page: "purchases" }, { title: "最近收听", page: "recent" }, { title: "本机记录", page: "local-recent" }] }] };
   }
   if (page === "discover") return { title: "发现专辑", sections: [{ title: "喜马拉雅推荐", shows: await recommendations(), empty: "暂无推荐专辑" }] };
-  const match = /^(subscriptions|purchases)(?::([1-9]\d{0,3}))?$/.exec(String(page));
-  if (match) return (match[1] === "subscriptions" ? subscriptions : purchases)(match[2] ? Number(match[2]) : 1);
+  const match = /^(subscriptions|purchases|recent)(?::([1-9]\d{0,3}))?$/.exec(String(page));
+  if (match) return { subscriptions, purchases, recent: history }[match[1]](match[2] ? Number(match[2]) : 1);
   throw fail("unsupported", "没有这个喜马拉雅页面");
 }
 export {
@@ -943,7 +989,7 @@ export {
   browse,
   home,
   played,
-  recent,
+  recent2 as recent,
   search,
   show,
   signIn,

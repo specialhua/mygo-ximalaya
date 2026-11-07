@@ -33,5 +33,6 @@ await reader.cancel();
 assert.ok(first.value?.byteLength > 0);
 console.log(`audio: HTTP ${response.status}; type=${audio.type}; range=${response.headers.get("content-range")}`);
 await plugin.played({ id: a.episodes[0].id });
-assert.equal(plugin.recent()[0].id, a.episodes[0].id);
+const local = await plugin.browse({ page: "local-recent" });
+assert.equal(local.sections[0].tracks[0].id, a.episodes[0].id);
 console.log("Public smoke passed. Account login and paid playback still require an in-app test.");

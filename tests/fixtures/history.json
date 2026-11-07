@@ -1,0 +1,17 @@
+{
+  "ret": 200,
+  "data": {
+    "today": [
+      { "type": 1, "itemId": 55, "itemTitle": "测试专辑", "itemCoverUrl": "group/cover.jpg", "childId": 1001, "childTitle": "测试单集一", "uid": 99, "userName": "测试主播", "breakSecond": 83, "length": 200, "startedAt": 1794049200000, "isDeleted": false, "childIsVideo": false }
+    ],
+    "yesterday": [],
+    "earlier": [
+      { "type": 1, "itemId": 66, "itemTitle": "另一专辑", "itemCoverUrl": "group/cover2.jpg", "childId": 1002, "childTitle": "测试单集二", "uid": 98, "userName": "另一主播", "breakSecond": 3661, "length": 4000, "startedAt": 1793962800000, "isDeleted": false, "childIsVideo": false }
+    ],
+    "syncPoint": 1794049300000,
+    "pageNum": 1,
+    "pageSize": 30,
+    "uid": 42,
+    "totalCount": 2
+  }
+}
