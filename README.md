@@ -25,13 +25,19 @@
 
 ## 安装
 
-当前仓库是私有的，请使用本地文件夹或 ZIP 安装。MyGo 从 GitHub 安装时不会使用你的 `gh` 登录状态。
+本插件已公开发布，可直接从 GitHub 安装。需要 MyGo Music 0.1.20 或更新版本。
 
-1. 打开 MyGo Music → 设置 → 插件 → `+`。
-2. 从本地文件夹选择本仓库根目录，或从 ZIP 选择 `dist/mygo-ximalaya-0.1.4.zip`。
+1. 打开 MyGo Music → 设置 → 插件 → `+` → 从 GitHub 安装。
+2. 输入 `specialhua/mygo-ximalaya`，确认安装。
 3. 在来源选择器切换到「喜马拉雅」，点击登录，在弹出的官方网页中扫码。
 
+已安装 MyGo Music 时，也可使用 [一键安装](mygo-music://install-plugin?repo=specialhua/mygo-ximalaya)。
+
+也可以下载 [源码 ZIP](https://github.com/specialhua/mygo-ximalaya/archive/refs/heads/main.zip)，解压后从本地文件夹安装包含 `plugin.json` 的目录。
+
 仓库已包含构建后的 `index.js`，使用插件不需要安装 Node、Python 或依赖。
+
+更新时，在 MyGo Music → 设置 → 插件中检查并安装更新。
 
 `0.1.1` 修复登录窗口二维码空白：改用 `passport.ximalaya.com` 登录入口。
 `www.ximalaya.com/page/web/login` 虽然能显示页面，其相对路径二维码接口却返回 404。
